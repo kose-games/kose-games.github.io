@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KOSE-GAMES</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="./assets/icon/favicon.png">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <span class="logo-text">KOSE GAMES</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#home" class="nav-link">ホーム</a></li>
+                <li><a href="#games" class="nav-link">ゲーム</a></li>
+                <li><a href="#categories" class="nav-link">カテゴリー</a></li>
+                <li><a href="https://suzuri.jp/kosegames" target="_blank" class="nav-link">公式グッズサイト</a></li>
+            </ul>
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="ゲームを検索...">
+                <button class="search-btn">🔍</button>
+                <span id="search-status" style="margin-left: 10px; font-size: 12px; color: #666;"></span>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero" id="home">
+        <div class="hero-bg">
+            <div class="hero-particles"></div>
+        </div>
+        <div class="hero-content">
+            <h1 class="hero-title">次世代のゲーム体験へ</h1>
+            <p class="hero-subtitle">愛がある、冒険がある、人生がある</p>
+            <button class="cta-button">今すぐプレイ</button>
+        </div>
+        <div class="hero-featured">
+            <div class="featured-game">
+                <div class="featured-img"></div>
+                <h3>サイバーパンク・オデッセイ</h3>
+                <p>未来都市で繰り広げられる壮大な冒険</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="categories" id="categories">
+        <div class="container">
+            <h2 class="section-title">カテゴリー</h2>
+            <div class="category-filter">
+                <button class="filter-btn active" data-category="all">すべて</button>
+                <button class="filter-btn" data-category="action">アクション</button>
+                <button class="filter-btn" data-category="rpg">RPG</button>
+                <button class="filter-btn" data-category="puzzle">パズル</button>
+                <button class="filter-btn" data-category="strategy">ストラテジー</button>
+                <button class="filter-btn" data-category="renai">恋愛</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="games" id="games">
+        <div class="container">
+            <h2 class="section-title">ゲームライブラリ</h2>
+            <div class="games-grid">
+                <!-- ゲームカードはJavaScriptで動的に生成されます -->
+                <div class="loading-message" style="grid-column: 1 / -1; text-align: center; padding: 3rem;">
+                    <p style="color: var(--text-gray);">ゲームを読み込み中...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>KOSE GAMES</h4>
+                    <p>最高のゲーム体験をお届けします</p>
+                </div>
+                <div class="footer-section">
+                    <h4>リンク</h4>
+                    <ul>
+                        <li><a href="#">利用規約</a></li>
+                        <li><a href="#">プライバシーポリシー</a></li>
+                        <li><a href="#">お問い合わせ</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>フォローする</h4>
+                    <div class="social-links">
+                        <a href="#" class="social-link">Twitter</a>
+                        <a href="#" class="social-link">Instagram</a>
+                        <a href="#" class="social-link">YouTube</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Game Portal. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="games-data.js"></script>
+    <script src="ngram-search.js"></script>
+    
+    <!-- DuckDB WASM for Full-Text Search -->
+    <script type="module">
+        import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@latest/+esm';
+        
+        window.duckDBReady = false;
+        window.searchDB = null;
+        
+        // DuckDB WASM初期化
+        async function initializeDuckDB() {
+            try {
+                const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
+                const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+                
+                const workerUrl = URL.createObjectURL(
+                    new Blob([`importScripts("${bundle.mainWorker}");`], {type: 'application/javascript'})
+                );
+                const worker = new Worker(workerUrl);
+                
+                const logger = new duckdb.ConsoleLogger();
+                const db = new duckdb.AsyncDuckDB(logger, worker);
+                await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+                
+                const conn = await db.connect();
+                
+                // FTS extension
+                console.log('📦 Installing FTS extension...');
+                await conn.query(`INSTALL fts;`);
+                await conn.query(`LOAD fts;`);
+                
+                // 拡張機能の確認
+                const extensions = await conn.query(`SELECT * FROM duckdb_extensions() WHERE extension_name = 'fts';`);
+                const extArray = extensions.toArray();
+                console.log('📦 FTS extension status:', extArray.map(row => ({...row})));
+                
+                // テーブル作成
+                await conn.query(`
+                    CREATE TABLE IF NOT EXISTS games (
+                        id INTEGER PRIMARY KEY,
+                        title VARCHAR,
+                        category VARCHAR,
+                        description VARCHAR,
+                        content VARCHAR
+                    );
+                `);
+                
+                // ゲームデータを挿入
+                if (window.gamesData && window.gamesData.games) {
+                    for (const game of window.gamesData.games) {
+                        // contentを小文字化して保存
+                        const content = `${game.title} ${game.description} ${getCategoryName(game.category)}`.toLowerCase();
+                        await conn.query(`
+                            INSERT INTO games (id, title, category, description, content) 
+                            VALUES (${game.id}, '${game.title.replace(/'/g, "''")}', '${game.category}', '${game.description.replace(/'/g, "''")}', '${content.replace(/'/g, "''")}');
+                        `);
+                    }
+                    
+                    // FTSインデックス作成前の確認
+                    console.log('🔨 Creating FTS index...');
+                    
+                    // インデックス作成前のテーブル状態
+                    const beforeTables = await conn.query(`SHOW TABLES;`);
+                    console.log('📋 Tables before FTS index:', beforeTables.toArray());
+                    
+                    // gamesテーブルの構造確認
+                    const tableInfo = await conn.query(`DESCRIBE games;`);
+                    console.log('📋 Games table structure:', tableInfo.toArray());
+                    
+                    try {
+                        // 方法1: 明示的にoverwriteを指定、トークン化設定を調整
+                        console.log('Creating FTS index with PRAGMA...');
+                        await conn.query(`
+                            PRAGMA create_fts_index(
+                                'games', 
+                                'id', 
+                                'content', 
+                                overwrite=1,
+                                stemmer='none',
+                                lower=1
+                            );
+                        `);
+                        console.log('✅ FTS index created successfully');
+                        
+                        // インデックスが作成されたか確認
+                        const checkIndex = await conn.query(`
+                            SELECT COUNT(*) as count FROM duckdb_tables() 
+                            WHERE schema_name = 'fts_main_games';
+                        `);
+                        console.log('FTS tables count:', checkIndex.toArray()[0].count);
+                        
+                    } catch (e) {
+                        console.error('❌ FTS index creation failed:', e.toString());
+                        
+                        // 方法2: CALL文を使う
+                        try {
+                            console.log('Trying with CALL statement...');
+                            await conn.query(`
+                                CALL fts_create_index('games', 'id', 'content');
+                            `);
+                            console.log('✅ FTS index created with CALL');
+                        } catch (e2) {
+                            console.error('❌ CALL method also failed:', e2.toString());
+                        }
+                    }
+                    
+                    // インデックスが作成されたか確認
+                    const indexCheck = await conn.query(`SHOW TABLES;`);
+                    console.log('📌 Tables after FTS index creation:', indexCheck.toArray());
+                    
+                    // FTSスキーマの詳細確認
+                    try {
+                        const ftsSchemas = await conn.query(`
+                            SELECT * FROM duckdb_schemas() 
+                            WHERE schema_name LIKE 'fts%';
+                        `);
+                        console.log('🔍 FTS schemas found:', ftsSchemas.toArray());
+                        
+                        // FTS関連の関数確認
+                        const ftsFunctions = await conn.query(`
+                            SELECT * FROM duckdb_functions() 
+                            WHERE schema_name LIKE 'fts%' AND function_name = 'match_bm25';
+                        `);
+                        console.log('🔍 FTS match_bm25 functions:', ftsFunctions.toArray());
+                    } catch (e) {
+                        console.error('FTS schema check error:', e);
+                    }
+                    
+                    // FTS機能のテスト
+                    try {
+                        const testFTS = await conn.query(`
+                            SELECT stem('testing', 'porter') as stemmed;
+                        `);
+                        console.log('🧪 FTS stem function test:', testFTS.toArray());
+                        
+                        // FTSインデックスの存在を確認
+                        const ftsTables = await conn.query(`
+                            SELECT table_name FROM duckdb_tables() 
+                            WHERE schema_name LIKE 'fts%';
+                        `);
+                        console.log('📄 FTS tables:', ftsTables.toArray().map(t => t.table_name));
+                    } catch (e) {
+                        console.error('❌ FTS function test failed:', e.toString());
+                    }
+                    
+                    // N-gramインデックスを作成
+                    if (window.createNgramIndex) {
+                        await window.createNgramIndex(conn);
+                    }
+                }
+                
+                window.searchDB = conn;
+                window.duckDBReady = true;
+                console.log('🦆 DuckDB FTS initialized successfully');
+                console.log('📊 Games loaded into DuckDB:', window.gamesData.games.length);
+                
+                // ユーザー向けの表示
+                const statusEl = document.getElementById('search-status');
+                if (statusEl) {
+                    statusEl.textContent = '✅ 高速検索準備完了';
+                    statusEl.style.color = '#22c55e';
+                    setTimeout(() => {
+                        statusEl.textContent = '';
+                    }, 3000);
+                }
+                
+                // テスト検索を実行
+                const testResult = await conn.query(`SELECT COUNT(*) as count FROM games;`);
+                console.log('🔍 Test query result:', testResult.toArray());
+                
+                // テーブルの内容を確認
+                const contentCheck = await conn.query(`SELECT id, title, content FROM games;`);
+                console.log('📋 Table content:', contentCheck.toArray());
+                
+                // FTSスキーマの確認
+                try {
+                    const schemas = await conn.query(`SELECT * FROM duckdb_schemas() WHERE database_name = 'memory' AND schema_name LIKE 'fts%';`);
+                    console.log('📁 FTS schemas:', schemas.toArray());
+                } catch (e) {
+                    console.error('Schema check error:', e);
+                }
+                
+                // 検索機能を有効化
+                enableSearch();
+                
+            } catch (error) {
+                console.error('Failed to initialize DuckDB:', error);
+            }
+        }
+        
+        // カテゴリ名取得
+        function getCategoryName(category) {
+            const categories = {
+                'action': 'アクション',
+                'rpg': 'RPG',
+                'puzzle': 'パズル',
+                'strategy': 'ストラテジー',
+                'renai': '恋愛'
+            };
+            return categories[category] || category;
+        }
+        
+        // 全文検索実行（N-gramベース）
+        window.performFullTextSearch = async function(searchTerm) {
+            if (!window.duckDBReady || !window.searchDB) {
+                console.log('DuckDB not ready, falling back to simple search');
+                return null;
+            }
+            
+            try {
+                console.log('🔍 Searching with n-grams for:', searchTerm);
+                
+                // N-gram検索を使用
+                if (window.searchWithNgrams) {
+                    const results = await window.searchWithNgrams(window.searchDB, searchTerm);
+                    console.log('N-gram search results:', results);
+                    return results;
+                }
+                
+                // フォールバック：通常のLIKE検索
+                const lowerSearchTerm = searchTerm.toLowerCase();
+                const result = await window.searchDB.query(`
+                    SELECT 
+                        id,
+                        title,
+                        category,
+                        description,
+                        1.0 as score
+                    FROM games
+                    WHERE 
+                        LOWER(title) LIKE '%${lowerSearchTerm.replace(/'/g, "''")}%' OR
+                        LOWER(description) LIKE '%${lowerSearchTerm.replace(/'/g, "''")}%'
+                    ORDER BY title;
+                `);
+                
+                return result.toArray();
+            } catch (error) {
+                console.error('Search error:', error);
+                return null;
+            }
+        };
+        
+        // 検索機能を有効化
+        function enableSearch() {
+            const searchInput = document.getElementById('search-input');
+            const searchBtn = document.querySelector('.search-btn');
+            
+            if (searchInput) {
+                searchInput.placeholder = "全文検索でゲームを探す...";
+            }
+        }
+        
+        // 簡単なFTSテスト関数
+        window.simpleFTSTest = async function() {
+            if (!window.searchDB) {
+                console.error('DuckDB not initialized');
+                return;
+            }
+            
+            console.log('=== Simple FTS Test ===');
+            
+            try {
+                // 1. 新しいテストテーブルを作成
+                await window.searchDB.query(`DROP TABLE IF EXISTS test_fts;`);
+                await window.searchDB.query(`
+                    CREATE TABLE test_fts (
+                        id INTEGER,
+                        text VARCHAR
+                    );
+                `);
+                
+                // 2. データを挿入
+                await window.searchDB.query(`
+                    INSERT INTO test_fts VALUES 
+                    (1, 'こせは楽しいゲームです'),
+                    (2, 'パズルゲームが大好き'),
+                    (3, 'アクションゲームも面白い');
+                `);
+                
+                // 3. FTSインデックスを作成
+                await window.searchDB.query(`
+                    PRAGMA create_fts_index('test_fts', 'id', 'text');
+                `);
+                
+                // 4. テーブル確認
+                const tables = await window.searchDB.query(`SHOW TABLES;`);
+                console.log('Tables after test FTS index:', tables.toArray());
+                
+                // 5. FTS検索を試す
+                const searchResult = await window.searchDB.query(`
+                    SELECT *, fts_main_test_fts.match_bm25(id, 'ゲーム') as score
+                    FROM test_fts
+                    WHERE score IS NOT NULL
+                    ORDER BY score DESC;
+                `);
+                console.log('Test FTS search results:', searchResult.toArray());
+                
+            } catch (error) {
+                console.error('Simple FTS test error:', error.toString());
+            }
+        };
+        
+        // DuckDB初期化開始
+        initializeDuckDB();
+        
+        // デバッグ用のグローバル関数
+        window.testFTS = async function(searchTerm = 'こせ') {
+            if (!window.searchDB) {
+                console.error('DuckDB not initialized');
+                return;
+            }
+            
+            console.log('=== FTS Debug Test ===');
+            console.log('Search term:', searchTerm);
+            
+            try {
+                // 1. テーブルの存在確認
+                const tables = await window.searchDB.query(`SHOW TABLES;`);
+                console.log('Tables:', tables.toArray().map(t => t.name));
+                
+                // 2. gamesテーブルの内容確認
+                const games = await window.searchDB.query(`SELECT * FROM games LIMIT 5;`);
+                console.log('Games table sample:', games.toArray());
+                
+                // 3. FTSスキーマの確認
+                const schemas = await window.searchDB.query(`SELECT * FROM duckdb_schemas();`);
+                console.log('All schemas:', schemas.toArray());
+                
+                // 4. 通常のLIKE検索
+                const likeResult = await window.searchDB.query(`
+                    SELECT id, title, content 
+                    FROM games 
+                    WHERE content LIKE '%${searchTerm}%';
+                `);
+                console.log('LIKE search results:', likeResult.toArray());
+                
+                // 5. FTS検索を試す（複数の方法）
+                console.log('--- Testing FTS search methods ---');
+                
+                // 方法1: WHERE句なしで試す
+                try {
+                    const ftsResult1 = await window.searchDB.query(`
+                        SELECT *, fts_main_games.match_bm25(id, '${searchTerm}') as score
+                        FROM games;
+                    `);
+                    console.log('Method 1 - FTS without WHERE:', ftsResult1.toArray());
+                } catch (e) {
+                    console.error('Method 1 error:', e.toString());
+                }
+                
+                // 方法2: サブクエリを使う
+                try {
+                    const ftsResult2 = await window.searchDB.query(`
+                        SELECT * FROM (
+                            SELECT *, fts_main_games.match_bm25(id, '${searchTerm}') as score
+                            FROM games
+                        ) WHERE score IS NOT NULL;
+                    `);
+                    console.log('Method 2 - FTS with subquery:', ftsResult2.toArray());
+                } catch (e) {
+                    console.error('Method 2 error:', e.toString());
+                }
+                
+                // 方法3: 直接マクロを呼ぶ
+                try {
+                    const ftsResult3 = await window.searchDB.query(`
+                        SELECT fts_main_games.match_bm25(${1}, '${searchTerm}') as score;
+                    `);
+                    console.log('Method 3 - Direct macro call:', ftsResult3.toArray());
+                } catch (e) {
+                    console.error('Method 3 error:', e.toString());
+                }
+                
+                // FTS関数/マクロの確認
+                try {
+                    const macros = await window.searchDB.query(`
+                        SELECT * FROM duckdb_functions() 
+                        WHERE function_name LIKE '%match%' OR function_name LIKE '%fts%';
+                    `);
+                    console.log('FTS-related functions/macros:', macros.toArray());
+                } catch (e) {
+                    console.error('Function check error:', e);
+                }
+                
+            } catch (error) {
+                console.error('Debug test error:', error);
+            }
+        };
+    </script>
+    
+    <script src="script.js"></script>
+</body>
+</html>
